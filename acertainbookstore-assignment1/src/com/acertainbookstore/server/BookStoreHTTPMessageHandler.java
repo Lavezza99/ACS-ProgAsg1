@@ -15,6 +15,7 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import com.acertainbookstore.business.BookCopy;
 import com.acertainbookstore.business.BookEditorPick;
 import com.acertainbookstore.business.CertainBookStore;
+import com.acertainbookstore.business.BookRating;
 import com.acertainbookstore.business.StockBook;
 import com.acertainbookstore.utils.BookStoreKryoSerializer;
 import com.acertainbookstore.interfaces.BookStoreSerializer;
@@ -23,7 +24,7 @@ import com.acertainbookstore.utils.BookStoreException;
 import com.acertainbookstore.utils.BookStoreMessageTag;
 import com.acertainbookstore.utils.BookStoreResponse;
 import com.acertainbookstore.utils.BookStoreUtility;
-import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Input;;
 
 /**
  * {@link BookStoreHTTPMessageHandler} implements the message handler class
@@ -111,12 +112,24 @@ public class BookStoreHTTPMessageHandler extends AbstractHandler {
 				buyBooks(request, response);
 				break;
 
+			case RATEBOOKS:
+				rateBooks(request, response);
+				break;
+
 			case GETBOOKS:
 				getBooks(request, response);
 				break;
 
 			case GETEDITORPICKS:
 				getEditorPicks(request, response);
+				break;
+
+			case GETTOPRATEDBOOKS:
+				getTopRatedBooks(request, response);
+				break;
+
+			case GETBOOKSINDEMAND:
+				getBooksInDemand(response);
 				break;
 
 			case GETSTOCKBOOKSBYISBN:
@@ -185,6 +198,32 @@ public class BookStoreHTTPMessageHandler extends AbstractHandler {
 		response.getOutputStream().write(serializedResponseContent);
 	}
 
+
+	/**
+	 * Gets the top rated books.
+	 *
+	 * @param request
+	 *            the request
+	 * @param response
+	 *            the response
+	 * @throws IOException
+	 *             Signals that an I/O exception has occurred.
+	 */
+	private void getTopRatedBooks(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		String numBooksString = URLDecoder.decode(request.getParameter(BookStoreConstants.BOOK_NUM_PARAM), StandardCharsets.UTF_8);
+		BookStoreResponse bookStoreResponse = new BookStoreResponse();
+
+		try {
+			int numBooks = BookStoreUtility.convertStringToInt(numBooksString);
+			bookStoreResponse.setList(myBookStore.getTopRatedBooks(numBooks));
+		} catch (BookStoreException ex) {
+			bookStoreResponse.setException(ex);
+		}
+
+		byte[] serializedResponseContent = serializer.get().serialize(bookStoreResponse);
+		response.getOutputStream().write(serializedResponseContent);
+	}
+
 	/**
 	 * Gets the books.
 	 *
@@ -213,6 +252,27 @@ public class BookStoreHTTPMessageHandler extends AbstractHandler {
 	}
 
 	/**
+	 * Gets the books in demand.
+	 *
+	 * @param response
+	 *            the response
+	 * @throws IOException
+	 *             Signals that an I/O exception has occurred.
+	 */
+	private void getBooksInDemand(HttpServletResponse response) throws IOException {
+		BookStoreResponse bookStoreResponse = new BookStoreResponse();
+
+		try {
+			bookStoreResponse.setList(myBookStore.getBooksInDemand());
+		} catch (BookStoreException ex) {
+			bookStoreResponse.setException(ex);
+		}
+
+		byte[] serializedResponseContent = serializer.get().serialize(bookStoreResponse);
+		response.getOutputStream().write(serializedResponseContent);
+	}
+
+	/**
 	 * Buys books.
 	 *
 	 * @param request
@@ -231,6 +291,33 @@ public class BookStoreHTTPMessageHandler extends AbstractHandler {
 
 		try {
 			myBookStore.buyBooks(bookCopiesToBuy);
+		} catch (BookStoreException ex) {
+			bookStoreResponse.setException(ex);
+		}
+
+		byte[] serializedResponseContent = serializer.get().serialize(bookStoreResponse);
+		response.getOutputStream().write(serializedResponseContent);
+	}
+
+	/**
+	 * Rate books.
+	 *
+	 * @param request
+	 *            the request
+	 * @param response
+	 *            the response
+	 * @throws IOException
+	 *             Signals that an I/O exception has occurred.
+	 */
+	@SuppressWarnings("unchecked")
+	private void rateBooks(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        byte[] serializedRequestContent = getSerializedRequestContent(request);
+
+		Set<BookRating> bookRatingToChange = (Set<BookRating>) serializer.get().deserialize(serializedRequestContent);
+		BookStoreResponse bookStoreResponse = new BookStoreResponse();
+
+		try {
+			myBookStore.rateBooks(bookRatingToChange);
 		} catch (BookStoreException ex) {
 			bookStoreResponse.setException(ex);
 		}

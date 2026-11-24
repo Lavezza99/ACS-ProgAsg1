@@ -53,6 +53,7 @@
             <test name="com.acertainbookstore.client.tests.BookStoreTest" haltonfailure="no" />
             <test name="com.acertainbookstore.client.tests.StockManagerTest" haltonfailure="no" />
             <classpath refid="acertainbookstore.classpath"/>
+            <jvmarg value="--add-opens=java.base/java.lang=ALL-UNNAMED"/>
             <jvmarg line="-Dlocaltest=${localtest}"/>
             <formatter usefile="false" type="brief"/>
           </junit>
