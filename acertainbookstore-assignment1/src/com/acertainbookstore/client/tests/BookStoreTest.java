@@ -2,6 +2,7 @@ package com.acertainbookstore.client.tests;
 
 import static org.junit.Assert.*;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -14,7 +15,9 @@ import org.junit.Test;
 
 import com.acertainbookstore.business.Book;
 import com.acertainbookstore.business.BookCopy;
+import com.acertainbookstore.business.BookRating;
 import com.acertainbookstore.business.CertainBookStore;
+import com.acertainbookstore.business.ImmutableBook;
 import com.acertainbookstore.business.ImmutableStockBook;
 import com.acertainbookstore.business.StockBook;
 import com.acertainbookstore.client.BookStoreHTTPProxy;
@@ -81,9 +84,14 @@ public class BookStoreTest {
 	 *             the book store exception
 	 */
 	public void addBooks(int isbn, int copies) throws BookStoreException {
+		addBookWithRatings(isbn, copies, 0, 0);
+	}
+
+	private void addBookWithRatings(int isbn, int copies, long numTimesRated, long totalRating)
+			throws BookStoreException {
 		Set<StockBook> booksToAdd = new HashSet<StockBook>();
-		StockBook book = new ImmutableStockBook(isbn, "Test of Thrones", "George RR Testin'", (float) 10, copies, 0, 0,
-				0, false);
+		StockBook book = new ImmutableStockBook(isbn, "Test of Thrones", "George RR Testin'", (float) 10, copies, 0,
+				numTimesRated, totalRating, false);
 		booksToAdd.add(book);
 		storeManager.addBooks(booksToAdd);
 	}
@@ -347,6 +355,100 @@ public class BookStoreTest {
 		List<StockBook> booksInStorePostTest = storeManager.getBooks();
 		assertTrue(booksInStorePreTest.containsAll(booksInStorePostTest)
 				&& booksInStorePreTest.size() == booksInStorePostTest.size());
+	}
+
+	@Test
+	public void testRateBooksAccumulatesRatingsIncludingZeroAndFive() throws BookStoreException {
+		int otherIsbn = TEST_ISBN + 1;
+		addBooks(otherIsbn, NUM_COPIES);
+
+		rateBooks(new BookRating(TEST_ISBN, 0), new BookRating(otherIsbn, 5));
+		assertRating(TEST_ISBN, 0, 1);
+		assertRating(otherIsbn, 5, 1);
+
+		rateBooks(new BookRating(TEST_ISBN, 5), new BookRating(otherIsbn, 3));
+		assertRating(TEST_ISBN, 5, 2);
+		assertRating(otherIsbn, 8, 2);
+	}
+
+	@Test
+	public void testRateBooksRejectsOutOfRangeRatingsWithoutPartialUpdates() throws BookStoreException {
+		int otherIsbn = TEST_ISBN + 1;
+		addBooks(otherIsbn, NUM_COPIES);
+		rateBooks(new BookRating(TEST_ISBN, 2), new BookRating(otherIsbn, 4));
+
+		assertRatingBatchRejected(new BookRating(TEST_ISBN, 5), new BookRating(otherIsbn, -1));
+		assertRating(TEST_ISBN, 2, 1);
+		assertRating(otherIsbn, 4, 1);
+
+		assertRatingBatchRejected(new BookRating(TEST_ISBN, 6), new BookRating(otherIsbn, 0));
+		assertRating(TEST_ISBN, 2, 1);
+		assertRating(otherIsbn, 4, 1);
+	}
+
+	@Test
+	public void testRateBooksRejectsInvalidAndUnknownIsbnsWithoutPartialUpdates() throws BookStoreException {
+		rateBooks(new BookRating(TEST_ISBN, 3));
+
+		assertRatingBatchRejected(new BookRating(TEST_ISBN, 5), new BookRating(-1, 2));
+		assertRating(TEST_ISBN, 3, 1);
+
+		assertRatingBatchRejected(new BookRating(TEST_ISBN, 0), new BookRating(TEST_ISBN + 1, 2));
+		assertRating(TEST_ISBN, 3, 1);
+	}
+
+	@Test
+	public void testGetTopRatedBooksReturnsRequestedBooksByAverageRating() throws BookStoreException {
+		int lowestRatedIsbn = TEST_ISBN + 1;
+		int secondRatedIsbn = TEST_ISBN + 2;
+		int highestRatedIsbn = TEST_ISBN + 3;
+		// Seed rating aggregates so this test can exercise ranking independently of rateBooks.
+		addBookWithRatings(lowestRatedIsbn, NUM_COPIES, 4, 16);
+		addBookWithRatings(secondRatedIsbn, NUM_COPIES, 3, 13);
+		addBookWithRatings(highestRatedIsbn, NUM_COPIES, 2, 9);
+
+		List<Book> topRated = client.getTopRatedBooks(2);
+
+		assertEquals(2, topRated.size());
+		assertEquals(highestRatedIsbn, topRated.get(0).getISBN());
+		assertEquals(secondRatedIsbn, topRated.get(1).getISBN());
+		for (Book book : topRated) {
+			assertEquals(ImmutableBook.class, book.getClass());
+		}
+	}
+
+	@Test
+	public void testGetTopRatedBooksValidatesRequestedCount() throws BookStoreException {
+		addBookWithRatings(TEST_ISBN + 1, NUM_COPIES, 1, 5);
+
+		assertTrue(client.getTopRatedBooks(0).isEmpty());
+		try {
+			client.getTopRatedBooks(-1);
+			fail("A negative number of books should be rejected");
+		} catch (BookStoreException expected) {
+			// The service rejects a negative result limit.
+		}
+	}
+
+	private void rateBooks(BookRating... ratings) throws BookStoreException {
+		client.rateBooks(new HashSet<>(Arrays.asList(ratings)));
+	}
+
+	private void assertRatingBatchRejected(BookRating... ratings) {
+		try {
+			rateBooks(ratings);
+			fail("A batch containing an invalid rating or ISBN should be rejected");
+		} catch (BookStoreException expected) {
+			// The caller checks that stored ratings are unchanged.
+		}
+	}
+
+	private void assertRating(int isbn, long totalRating, long numTimesRated) throws BookStoreException {
+		Set<Integer> isbns = new HashSet<>();
+		isbns.add(isbn);
+		StockBook book = storeManager.getBooksByISBN(isbns).get(0);
+		assertEquals("Total rating for ISBN " + isbn, totalRating, book.getTotalRating());
+		assertEquals("Rating count for ISBN " + isbn, numTimesRated, book.getNumTimesRated());
 	}
 
 	/**
