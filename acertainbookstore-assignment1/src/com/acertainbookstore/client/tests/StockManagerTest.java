@@ -5,7 +5,9 @@ import static org.junit.Assert.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -467,6 +469,57 @@ public class StockManagerTest {
 
 		booksInStoreList = storeManager.getBooks();
 		assertTrue(booksInStoreList.size() == 0);
+	}
+
+	@Test
+	public void testGetBooksInDemandExcludesSoldOutBooksWithoutSalesMisses() throws BookStoreException {
+		Set<BookCopy> order = new HashSet<>();
+		order.add(new BookCopy(TEST_ISBN, NUM_COPIES));
+		client.buyBooks(order);
+		assertEquals(0, storeManager.getBooks().get(0).getNumCopies());
+
+		assertTrue(storeManager.getBooksInDemand().isEmpty());
+	}
+
+	@Test
+	public void testGetBooksInDemandClearsOnlyTheRestockedBook() throws BookStoreException {
+		int otherShortIsbn = TEST_ISBN + 1;
+		int availableIsbn = TEST_ISBN + 2;
+		Set<StockBook> booksToAdd = new HashSet<>();
+		booksToAdd.add(new ImmutableStockBook(otherShortIsbn, "Second Book", "Second Author", 10, NUM_COPIES,
+				0, 0, 0, false));
+		booksToAdd.add(new ImmutableStockBook(availableIsbn, "Third Book", "Third Author", 10, NUM_COPIES,
+				0, 0, 0, false));
+		storeManager.addBooks(booksToAdd);
+
+		Set<BookCopy> order = new HashSet<>();
+		order.add(new BookCopy(TEST_ISBN, NUM_COPIES + 2));
+		order.add(new BookCopy(otherShortIsbn, NUM_COPIES + 1));
+		order.add(new BookCopy(availableIsbn, 1));
+		try {
+			client.buyBooks(order);
+			fail("An order with insufficient stock should be rejected");
+		} catch (BookStoreException expected) {
+			// The rejected order should still record misses for the two short books.
+		}
+
+		Map<Integer, StockBook> demandBeforeRestock = storeManager.getBooksInDemand().stream()
+				.collect(Collectors.toMap(StockBook::getISBN, book -> book));
+		assertEquals(2, demandBeforeRestock.size());
+		StockBook replenishedBookSnapshot = demandBeforeRestock.get(TEST_ISBN);
+		assertTrue(replenishedBookSnapshot instanceof ImmutableStockBook);
+		assertTrue(demandBeforeRestock.get(otherShortIsbn) instanceof ImmutableStockBook);
+		long originalSaleMisses = replenishedBookSnapshot.getNumSaleMisses();
+		assertTrue(originalSaleMisses > 0);
+
+		Set<BookCopy> restock = new HashSet<>();
+		restock.add(new BookCopy(TEST_ISBN, 1));
+		storeManager.addCopies(restock);
+
+		List<StockBook> demandAfterRestock = storeManager.getBooksInDemand();
+		assertEquals(1, demandAfterRestock.size());
+		assertEquals(otherShortIsbn, demandAfterRestock.get(0).getISBN());
+		assertEquals(originalSaleMisses, replenishedBookSnapshot.getNumSaleMisses());
 	}
 
 	/**
