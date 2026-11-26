@@ -317,7 +317,18 @@ public class CertainBookStore implements BookStore, StockManager {
 	 */
 	@Override
 	public synchronized List<Book> getTopRatedBooks(int numBooks) throws BookStoreException {
-		throw new BookStoreException();
+
+		if (numBooks < 0) {
+			throw new BookStoreException(
+				"numBooks = " + numBooks + ", but it must be non-negative");
+		}
+
+		return bookMap.values().stream()
+				.sorted((book1, book2) -> Float.compare(
+					book2.getAverageRating(), book1.getAverageRating()))
+				.limit(numBooks)
+				.map(book -> book.immutableBook())
+				.collect(Collectors.toList());
 	}
 
 	/*
@@ -327,7 +338,11 @@ public class CertainBookStore implements BookStore, StockManager {
 	 */
 	@Override
 	public synchronized List<StockBook> getBooksInDemand() throws BookStoreException {
-		throw new BookStoreException();
+
+		return bookMap.values().stream()
+				.filter(book -> book.hadSaleMiss())
+				.map(book -> book.immutableStockBook())
+				.collect(Collectors.toList());
 	}
 
 	/*
@@ -337,7 +352,31 @@ public class CertainBookStore implements BookStore, StockManager {
 	 */
 	@Override
 	public synchronized void rateBooks(Set<BookRating> bookRating) throws BookStoreException {
-		throw new BookStoreException();
+			
+		if (bookRating == null) {
+			throw new BookStoreException(BookStoreConstants.NULL_INPUT);
+		}
+
+		// Validate all ratings before updating any books.
+		for (BookRating rating : bookRating) {
+			if (rating == null) {
+				throw new BookStoreException(BookStoreConstants.NULL_INPUT);
+			}
+
+			validateISBNInStock(rating.getISBN());
+
+			if (BookStoreUtility.isInvalidRating(rating.getRating())) {
+				throw new BookStoreException(
+					BookStoreConstants.RATING + rating.getRating()
+					+ BookStoreConstants.INVALID);
+			}
+		}
+
+		// Update the ratings after all inputs have been validated.
+		for (BookRating rating : bookRating) {
+			BookStoreBook book = bookMap.get(rating.getISBN());
+			book.addRating(rating.getRating());
+		}
 	}
 
 	/*
